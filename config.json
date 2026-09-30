@@ -1,0 +1,8 @@
+{
+  "http_port": 8766,
+  "ws_port": 8767,
+  "pin": "1234",
+  "restore_clipboard": true,
+  "paste_delay_ms": 60,
+  "auto_enter": false
+}

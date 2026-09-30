@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
+# 日志
+logs/
+
+# IDE
+.idea/
+.vscode/
+
+# 打包工具二进制（UPX）
+tools/upx/
+tools/upx.zip
+
+# 旧构建目录
+dist2/
+
+# 误创建
+nul
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

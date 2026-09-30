@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#050506" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Phone-Typer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050506;
+      --surface: #0a0a0c;
+      --border: rgba(255,255,255,0.08);
+      --border-strong: rgba(255,255,255,0.14);
+      --text: #ededef;
+      --muted: #8a8f98;
+      --indigo: #6366f1;
+      --purple: #a855f7;
+    }
+    * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0 auto;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      letter-spacing: -0.02em;
+      background:
+        radial-gradient(120% 55% at 50% -10%, rgba(99,102,241,0.16), transparent 60%),
+        radial-gradient(90% 40% at 85% 110%, rgba(168,85,247,0.08), transparent 60%),
+        var(--bg);
+      color: var(--text);
+      padding: max(20px, env(safe-area-inset-top)) 18px max(24px, env(safe-area-inset-bottom));
+      display: flex; flex-direction: column; gap: 14px;
+      max-width: 560px;
+    }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand img { width: 36px; height: 36px; border-radius: 10px; }
+    .brand h1 { font-size: 19px; font-weight: 600; margin: 0; line-height: 1.2; }
+    .brand small { display: block; font-size: 10px; color: var(--muted); font-weight: 400; letter-spacing: 0.02em; }
+    #status {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 12px; padding: 7px 12px; border-radius: 999px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      white-space: nowrap; transition: all .25s;
+    }
+    #status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    #status.ok { color: #4ade80; border-color: rgba(74,222,128,0.25); animation: breathe 2.4s ease-in-out infinite; }
+    #status.bad { color: #f87171; border-color: rgba(248,113,113,0.25); }
+    #status.wait { color: var(--muted); }
+    @keyframes breathe { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+    @media (prefers-reduced-motion: reduce) { #status.ok { animation: none; } }
+
+    .editor {
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)), var(--surface);
+      border: 1px solid var(--border);
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .editor:focus-within {
+      border-color: rgba(99,102,241,0.5);
+      box-shadow: 0 0 0 1px rgba(99,102,241,0.25), 0 0 32px rgba(99,102,241,0.12);
+    }
+    textarea {
+      display: block; width: 100%; height: 32vh; min-height: 170px;
+      font-size: 17px; line-height: 1.6; letter-spacing: 0;
+      font-family: inherit;
+      padding: 16px; border-radius: 16px;
+      background: transparent; border: 0; outline: none; resize: none;
+      color: var(--text); caret-color: var(--indigo);
+    }
+    .meta { display: flex; justify-content: space-between; align-items: center; padding: 0 4px; font-size: 11px; color: var(--muted); letter-spacing: 0; }
+
+    .row2 { display: flex; gap: 10px; align-items: center; }
+    #pin {
+      flex: 1; font-size: 15px; padding: 12px 14px; border-radius: 12px;
+      border: 1px solid var(--border); background: var(--surface);
+      color: var(--text); outline: none; letter-spacing: 0.08em;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    #pin:focus { border-color: rgba(99,102,241,0.5); box-shadow: 0 0 24px rgba(99,102,241,0.1); }
+    #pin::placeholder { letter-spacing: 0; color: #565b64; }
+
+    .card {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 16px; border-radius: 14px;
+      background: var(--surface); border: 1px solid var(--border);
+    }
+    .card .lbl { font-size: 13px; font-weight: 600; }
+    .card .sub { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.5; letter-spacing: 0; }
+    .switch { position: relative; width: 46px; height: 27px; flex: none; cursor: pointer; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0; border-radius: 999px;
+      background: #26262c; border: 1px solid var(--border); transition: all .25s;
+    }
+    .slider::before {
+      content: ''; position: absolute; width: 19px; height: 19px; border-radius: 50%;
+      left: 3px; top: 50%; transform: translateY(-50%);
+      background: #71717a; transition: all .25s;
+    }
+    .switch input:checked + .slider { background: linear-gradient(90deg, var(--indigo), var(--purple)); border-color: transparent; }
+    .switch input:checked + .slider::before { left: 23px; background: #fff; }
+
+    .actions { display: flex; gap: 10px; margin-top: 2px; }
+    button {
+      font-size: 16px; font-weight: 600; letter-spacing: -0.01em;
+      padding: 15px; border-radius: 13px; border: 0; cursor: pointer;
+      color: #fff; transition: filter .15s, transform .15s, background .2s;
+      font-family: inherit;
+    }
+    #send {
+      flex: 1;
+      background: linear-gradient(135deg, var(--indigo), var(--purple));
+      box-shadow: 0 4px 24px rgba(99,102,241,0.35);
+    }
+    #send:active { transform: scale(0.98); }
+    button:disabled { background: #1c1c22; color: #565b64; box-shadow: none; }
+    #clear { flex: 0 0 92px; background: transparent; border: 1px solid var(--border-strong); color: var(--muted); font-weight: 400; }
+    #clear:active { background: rgba(255,255,255,0.05); }
+
+    .hint { font-size: 11px; color: #565b64; line-height: 1.7; letter-spacing: 0; padding: 0 2px; }
+
+    .inbox { border-radius: 14px; background: var(--surface); border: 1px solid var(--border); padding: 14px 16px; }
+    .inbox-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .inbox-head .lbl { font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: 0.02em; }
+    .mini { font-size: 12px; padding: 6px 14px; border-radius: 8px; background: rgba(99,102,241,0.14); color: var(--indigo); font-weight: 600; border: 0; font-family: inherit; }
+    .mini:active { background: rgba(99,102,241,0.24); }
+    #inboxText { font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; margin: 0; max-height: 32vh; overflow: auto; color: var(--text); }
+    #inboxText.empty { color: var(--muted); font-style: italic; }
+    .inbox.flash { border-color: rgba(99,102,241,0.6); box-shadow: 0 0 0 1px rgba(99,102,241,0.3), 0 0 24px rgba(99,102,241,0.15); transition: all .3s; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img src="/icons/icon-192.png" alt="" />
+      <div>
+        <h1>Phone-Typer</h1>
+        <small>手机键盘 · 电脑键入</small>
+      </div>
+    </div>
+    <div id="status" class="wait">连接中</div>
+  </header>
+
+  <div id="inbox" class="inbox">
+    <div class="inbox-head">
+      <span class="lbl">电脑发来的文本</span>
+      <button id="copyInbox" class="mini">复制</button>
+    </div>
+    <pre id="inboxText" class="empty">等待电脑发来文本…</pre>
+  </div>
+
+  <div class="editor">
+    <textarea id="text" placeholder="在这里打字…（实时同步模式下，内容随打随出现在电脑光标处）"></textarea>
+  </div>
+  <div class="meta">
+    <span>输入即同步 · 拼音上屏才发送</span>
+    <span id="count">0 字</span>
+  </div>
+
+  <div class="row2">
+    <input id="pin" inputmode="numeric" autocomplete="off" placeholder="PIN（输入后本机记住）" />
+  </div>
+
+  <div class="card">
+    <div>
+      <div class="lbl">实时同步</div>
+      <div class="sub">随打随出，删格电脑端同步回删；切换或断线重连会清空输入框并重置基线</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="live" checked />
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="actions">
+    <button id="send">发送并键入</button>
+    <button id="clear">清空</button>
+  </div>
+
+  <div class="hint">
+    实时同步时电脑端光标请保持在你要输入的位置。<br />
+    需与电脑同一 WiFi；连不上请检查防火墙放行、路由器未开「AP 隔离」。
+  </div>
+
+  <script>
+    (function () {
+      const statusEl = document.getElementById('status');
+      const textEl   = document.getElementById('text');
+      const pinEl    = document.getElementById('pin');
+      const sendEl   = document.getElementById('send');
+      const clearEl  = document.getElementById('clear');
+      const liveEl   = document.getElementById('live');
+      const countEl  = document.getElementById('count');
+      const inboxEl  = document.getElementById('inbox');
+      const inboxTextEl = document.getElementById('inboxText');
+      const copyInboxEl = document.getElementById('copyInbox');
+
+      let ws = null;
+      let wsPort = 8767;          // 稍后从 /api/config 获取真实值
+      let retryTimer = null;
+      let syncTimer = null;
+      let composing = false;      // 拼音组合态：true 期间不同步
+
+      pinEl.value = localStorage.getItem('phonetyper_pin') || '';
+      pinEl.addEventListener('input', () => localStorage.setItem('phonetyper_pin', pinEl.value));
+
+      function setStatus(text, cls) {
+        statusEl.textContent = text;
+        statusEl.className = cls;
+      }
+
+      function updateCount() {
+        countEl.textContent = textEl.value.length + ' 字';
+      }
+
+      function updateSendState() {
+        const connected = ws && ws.readyState === WebSocket.OPEN;
+        sendEl.disabled = !connected || liveEl.checked;   // 实时模式下整段发送无意义
+        sendEl.textContent = liveEl.checked ? '实时同步中' : '发送并键入';
+      }
+
+      function sendSyncNow() {
+        if (!liveEl.checked || composing) return;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({ pin: pinEl.value, type: 'sync', text: textEl.value }));
+      }
+
+      function scheduleSync() {
+        if (!liveEl.checked || composing) return;
+        clearTimeout(syncTimer);
+        syncTimer = setTimeout(sendSyncNow, 150);
+      }
+
+      function connect() {
+        const url = 'ws://' + location.hostname + ':' + wsPort;
+        try { ws = new WebSocket(url); } catch (e) { setStatus('无法建立连接', 'bad'); return; }
+
+        ws.onopen = function () {
+          setStatus('已连接', 'ok');
+          textEl.value = '';            // 连接建立：手机镜像与电脑端基线同时从空开始
+          updateCount();
+          updateSendState();
+        };
+        ws.onclose = function () {
+          setStatus('已断开，重连中', 'bad');
+          updateSendState();
+          clearTimeout(retryTimer);
+          retryTimer = setTimeout(connect, 3000);
+        };
+        ws.onerror = function () { setStatus('连接错误', 'bad'); };
+        ws.onmessage = function (e) {
+          let r = {};
+          try { r = JSON.parse(e.data); } catch (_) {}
+          if (r.type === 'clip') {
+            inboxTextEl.textContent = r.text || '';
+            inboxTextEl.classList.remove('empty');
+            inboxEl.classList.add('flash');
+            setTimeout(function () { inboxEl.classList.remove('flash'); }, 1200);
+            setStatus('已连接', 'ok');
+            return;
+          }
+          if (r.ok) {
+            setStatus('已连接', 'ok');
+          } else if (r.err === 'bad-pin') {
+            setStatus('PIN 错误', 'bad');
+            pinEl.focus();
+          } else {
+            setStatus('发送失败', 'bad');
+          }
+        };
+      }
+
+      fetch('/api/config')
+        .then(function (r) { return r.json(); })
+        .then(function (cfg) { if (cfg && cfg.ws_port) wsPort = cfg.ws_port; })
+        .catch(function () { /* 用默认端口 */ })
+        .finally(function () { connect(); });
+
+      // ---- 实时同步：拼音组合态不同步，上屏后同步 ----
+      textEl.addEventListener('compositionstart', function () { composing = true; });
+      textEl.addEventListener('compositionend', function () {
+        composing = false;
+        updateCount();
+        scheduleSync();
+      });
+      textEl.addEventListener('input', function () { updateCount(); scheduleSync(); });
+
+      // ---- 模式开关：切换时清空输入框（基线重置，避免错位） ----
+      liveEl.addEventListener('change', function () {
+        clearTimeout(syncTimer);
+        textEl.value = '';
+        updateCount();
+        updateSendState();
+        textEl.focus();
+      });
+
+      // ---- 整段发送（仅非实时模式） ----
+      sendEl.onclick = function () {
+        const text = textEl.value;
+        if (!text) { textEl.focus(); return; }
+        if (!ws || ws.readyState !== WebSocket.OPEN) { setStatus('未连接', 'bad'); return; }
+        ws.send(JSON.stringify({ pin: pinEl.value, type: 'send', text: text }));
+        textEl.value = '';
+        updateCount();
+        textEl.focus();
+      };
+
+      // ---- 清空：实时模式下同时回删电脑端本次同步的内容 ----
+      clearEl.onclick = function () {
+        textEl.value = '';
+        updateCount();
+        if (liveEl.checked) sendSyncNow();
+        textEl.focus();
+      };
+
+      copyInboxEl.onclick = function () {
+        const t = inboxTextEl.textContent;
+        if (!t) return;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(t).then(function () {
+            copyInboxEl.textContent = '已复制';
+            setTimeout(function () { copyInboxEl.textContent = '复制'; }, 1500);
+          });
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = t; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); copyInboxEl.textContent = '已复制';
+            setTimeout(function () { copyInboxEl.textContent = '复制'; }, 1500); } catch (_) {}
+          document.body.removeChild(ta);
+        }
+      };
+
+      window.addEventListener('pageshow', function () {
+        if (!ws || ws.readyState > 1) { clearTimeout(retryTimer); connect(); }
+      });
+
+      updateSendState();
+      updateCount();
+    })();
+  </script>
+</body>
+</html>
