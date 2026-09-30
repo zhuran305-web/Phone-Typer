@@ -248,13 +248,31 @@ class LocalHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
 
 
+def _fatal_port_error(field: str, port: int, exc: Exception) -> None:
+    """端口冲突致命错误：写日志 + 弹窗提示（exe）或打印（控制台）后退出。"""
+    msg = (f"端口 {port} 被占用或不可用：{exc}\n\n"
+           f"请用记事本打开 exe 旁的 config.json，\n"
+           f"把 \"{field}\" 改成其他端口（如 {port + 2}）后重试。")
+    log.error("%s 端口 %s 被占用：%s", field, port, exc)
+    if FROZEN:
+        try:
+            import tkinter as tk
+            from tkinter import messagebox
+            root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True)
+            messagebox.showerror("Phone-Typer 无法启动", msg, parent=root)
+            root.destroy()
+        except Exception:
+            pass
+    else:
+        print(f"[FATAL] {msg}")
+    os._exit(1)
+
+
 def start_http_server() -> None:
     try:
         httpd = LocalHTTPServer(("0.0.0.0", CONFIG["http_port"]), PageHandler)
     except OSError as exc:
-        log.error("HTTP 端口 %s 被占用或不可用：%s", CONFIG["http_port"], exc)
-        log.error("请修改 config.json 的 http_port 后重试。")
-        os._exit(1)
+        _fatal_port_error("http_port", CONFIG["http_port"], exc)
     httpd.serve_forever()
 
 
@@ -369,8 +387,7 @@ class ServiceRunner:
                 log.info("WebSocket 监听 :%s", CONFIG["ws_port"])
                 await asyncio.Future()
         except OSError as exc:
-            log.error("WebSocket 端口 %s 被占用或不可用：%s", CONFIG["ws_port"], exc)
-            os._exit(1)
+            _fatal_port_error("ws_port", CONFIG["ws_port"], exc)
 
     def stop(self) -> None:
         if self.loop and self.loop.is_running():
@@ -412,8 +429,7 @@ async def _serve_forever() -> None:
         async with websockets.serve(ws_handler, "0.0.0.0", CONFIG["ws_port"]):
             await asyncio.Future()
     except OSError as exc:
-        print(f"[FATAL] WebSocket 端口 {CONFIG['ws_port']} 被占用或不可用：{exc}")
-        os._exit(1)
+        _fatal_port_error("ws_port", CONFIG["ws_port"], exc)
 
 
 if __name__ == "__main__":
