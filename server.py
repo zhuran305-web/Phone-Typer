@@ -164,28 +164,27 @@ def type_text(text: str) -> None:
                 pass
 
 
+def _press_key(key, n: int, delay: float = 0.01) -> None:
+    """模拟按 n 次指定按键（n<0 视为 0）。"""
+    for _ in range(max(n, 0)):
+        keyboard.press(key)
+        keyboard.release(key)
+        time.sleep(delay)
+
+
 def backspace(n: int) -> None:
     """模拟按 n 次 Backspace（实时同步时的删格回删）。"""
-    for _ in range(max(n, 0)):
-        keyboard.press(Key.backspace)
-        keyboard.release(Key.backspace)
-        time.sleep(0.01)
+    _press_key(Key.backspace, n)
 
 
 def move_left(n: int) -> None:
     """模拟按 n 次 ←（中间编辑时把光标从末尾移到编辑点）。"""
-    for _ in range(max(n, 0)):
-        keyboard.press(Key.left)
-        keyboard.release(Key.left)
-        time.sleep(0.01)
+    _press_key(Key.left, n)
 
 
 def move_right(n: int) -> None:
     """模拟按 n 次 →（中间编辑后把光标移回末尾）。"""
-    for _ in range(max(n, 0)):
-        keyboard.press(Key.right)
-        keyboard.release(Key.right)
-        time.sleep(0.01)
+    _press_key(Key.right, n)
 
 
 def diff_sync(old: str, new: str):
@@ -382,12 +381,8 @@ class ServiceRunner:
         ip = get_lan_ip()
         threading.Thread(target=start_http_server, daemon=True, name="pt-http").start()
         log.info("HTTP 监听 %s:%s", ip, CONFIG["http_port"])
-        try:
-            async with websockets.serve(ws_handler, "0.0.0.0", CONFIG["ws_port"]):
-                log.info("WebSocket 监听 :%s", CONFIG["ws_port"])
-                await asyncio.Future()
-        except OSError as exc:
-            _fatal_port_error("ws_port", CONFIG["ws_port"], exc)
+        log.info("WebSocket 监听 :%s", CONFIG["ws_port"])
+        await _serve_ws_forever()
 
     def stop(self) -> None:
         if self.loop and self.loop.is_running():
@@ -419,12 +414,12 @@ def run_console() -> None:
         print(f"[WARN] 二维码生成失败（{exc}），请手动输入网址")
 
     try:
-        asyncio.run(_serve_forever())
+        asyncio.run(_serve_ws_forever())
     except KeyboardInterrupt:
         print("\n已退出")
 
 
-async def _serve_forever() -> None:
+async def _serve_ws_forever() -> None:
     try:
         async with websockets.serve(ws_handler, "0.0.0.0", CONFIG["ws_port"]):
             await asyncio.Future()

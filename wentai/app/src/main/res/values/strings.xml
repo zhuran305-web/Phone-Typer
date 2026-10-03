@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">文台</string>
+
+    <string name="brand_subtitle">手机键盘 · 电脑键入</string>
+
+    <!-- 连接状态 -->
+    <string name="status_unpaired">未配对</string>
+    <string name="status_connecting">连接中…</string>
+    <string name="status_connected">已连接</string>
+    <string name="status_reconnecting">已断开，重连中</string>
+    <string name="status_pin_error">PIN 错误</string>
+
+    <!-- 主界面 -->
+    <string name="label_inbox">电脑发来的文本</string>
+    <string name="inbox_empty">等待电脑发来文本…</string>
+    <string name="btn_copy">复制</string>
+    <string name="editor_hint">在这里打字…（实时同步模式下，内容随打随出现在电脑光标处）</string>
+    <string name="char_count">%1$d 字</string>
+    <string name="label_live_mode">实时同步</string>
+    <string name="label_live_mode_desc">随打随出，删格电脑端同步回删；切换或断线重连会清空输入框并重置基线</string>
+    <string name="btn_send">发送并键入</string>
+    <string name="btn_send_live">实时同步中</string>
+    <string name="btn_clear">清空</string>
+    <string name="btn_retry">重连</string>
+    <string name="btn_pair">配对设置</string>
+    <string name="version_info">本机 v%1$s · 电脑端 v%2$s</string>
+    <string name="version_unknown">未知</string>
+    <string name="main_hint">实时同步时电脑端光标请保持在你要输入的位置。\n需与电脑同一 WiFi；连不上请检查防火墙放行、路由器未开「AP 隔离」。</string>
+    <string name="background_limit_hint">应用在后台时不接收电脑端推送，请保持文台在前台。</string>
+
+    <!-- 一次性提示 -->
+    <string name="notice_not_connected">未连接，请检查电脑端是否运行、是否同一 WiFi</string>
+    <string name="notice_copied">已复制</string>
+    <string name="notice_copy_failed">复制失败</string>
+    <string name="notice_pin_error">PIN 错误，请重新配对</string>
+    <string name="notice_empty_content">内容为空</string>
+
+    <!-- 配对界面 -->
+    <string name="pair_title">配对设置</string>
+    <string name="pair_hint">扫描电脑端托盘「App 配对二维码」，或手动填写以下信息</string>
+    <string name="pair_btn_scan">扫码配对</string>
+    <string name="pair_btn_gallery">从相册选择</string>
+    <string name="pair_host_hint">主机地址（如 192.168.1.10）</string>
+    <string name="pair_http_hint">HTTP 端口（默认 8766）</string>
+    <string name="pair_ws_hint">WebSocket 端口（默认 8767）</string>
+    <string name="pair_pin_hint">PIN（默认 1234）</string>
+    <string name="pair_btn_save">保存并连接</string>
+    <string name="pair_success">配对成功，正在连接…</string>
+    <string name="scan_prompt">扫描电脑端「App 配对」二维码</string>
+
+    <string name="pair_err_invalid_format">二维码不是文台配对码，请扫描电脑端 App 配对二维码</string>
+    <string name="pair_err_incomplete">配对信息不完整，请手动填写地址与 PIN</string>
+    <string name="pair_err_manual">请填写完整且合法的地址、端口（1-65535）与 PIN</string>
+    <string name="pair_err_unreachable">已断开，重连中，请检查电脑端是否运行、是否同一 WiFi</string>
+    <string name="pair_err_response">电脑端响应异常，请重试或手动配对</string>
+    <string name="pair_err_camera_denied">请在系统设置中开启相机权限，或手动输入配对信息</string>
+</resources>

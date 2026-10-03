@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+# Gradle wrapper startup script (POSIX)
+
+APP_HOME=$(cd "$(dirname "$0")" && pwd)
+CLASSPATH="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+
+if [ ! -f "$CLASSPATH" ]; then
+  echo "[ERROR] 未找到 gradle-wrapper.jar: $CLASSPATH" >&2
+  echo "请先安装 Gradle 并执行: gradle wrapper --gradle-version 8.7" >&2
+  exit 1
+fi
+
+if [ -n "$JAVA_HOME" ]; then
+  JAVA_EXE="$JAVA_HOME/bin/java"
+else
+  JAVA_EXE="java"
+fi
+
+exec "$JAVA_EXE" "-Xmx64m" "-Xms64m" -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"

@@ -320,19 +320,20 @@
         textEl.focus();
       };
 
+      function flashCopied() {
+        copyInboxEl.textContent = '已复制';
+        setTimeout(function () { copyInboxEl.textContent = '复制'; }, 1500);
+      }
+
       copyInboxEl.onclick = function () {
         const t = inboxTextEl.textContent;
         if (!t) return;
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(t).then(function () {
-            copyInboxEl.textContent = '已复制';
-            setTimeout(function () { copyInboxEl.textContent = '复制'; }, 1500);
-          });
+          navigator.clipboard.writeText(t).then(flashCopied);
         } else {
           const ta = document.createElement('textarea');
           ta.value = t; document.body.appendChild(ta); ta.select();
-          try { document.execCommand('copy'); copyInboxEl.textContent = '已复制';
-            setTimeout(function () { copyInboxEl.textContent = '复制'; }, 1500); } catch (_) {}
+          try { document.execCommand('copy'); flashCopied(); } catch (_) {}
           document.body.removeChild(ta);
         }
       };

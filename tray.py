@@ -2,14 +2,13 @@
 """
 Phone-Typer 系统托盘后台模式（v1.6）。
 
-无控制台窗口：托盘图标 + 右键菜单 + 小状态窗口。
-  - 显示主界面：tkinter 小窗（IP / 二维码 / 端口 / PIN）
-  - 显示二维码：生成 PNG → 系统默认看图器弹窗
-  - 复制访问地址 / 在浏览器打开
+无控制台窗口：托盘图标 + 右键菜单 + 主界面 / 设置小窗。
+  - 显示主界面：窗口内直接生成并展示网页入口 / App 配对二维码
+  - 复制访问地址 / 在浏览器打开 / 发送剪贴板到手机
+  - 设置：PIN 热更新 + 开机自启开关（HKCU Run 注册表）
   - 退出
-
-预留开机自启接口（set_autostart），暂不接入菜单，便于以后扩展。
 """
+import ctypes
 import logging
 import os
 import sys
@@ -36,6 +35,8 @@ ICON_PATH = os.path.join(APP_DIR, "web", "icons", "icon-256.png")
 ICON_PATH_512 = os.path.join(APP_DIR, "web", "icons", "icon-512.png")
 BUNDLED_ICON = os.path.join(getattr(sys, "_MEIPASS", ""), "web", "icons", "icon-256.png")
 BUNDLED_ICON_512 = os.path.join(getattr(sys, "_MEIPASS", ""), "web", "icons", "icon-512.png")
+ICON_ICO = os.path.join(APP_DIR, "web", "icons", "icon.ico")
+BUNDLED_ICON_ICO = os.path.join(getattr(sys, "_MEIPASS", ""), "web", "icons", "icon.ico")
 
 
 def _load_icon_image(size: int | None = None):
@@ -59,6 +60,73 @@ def _load_icon_image(size: int | None = None):
     return img
 
 
+def _load_icon_ico_path() -> str | None:
+    """解析窗口任务栏图标 .ico 路径：优先 exe 旁，其次内嵌，最后用占位图生成临时 ico。
+
+    打包态经 sys._MEIPASS\\web\\icons\\icon.ico 可访问；全缺失时用 _load_icon_image()
+    占位兜底生成临时 ico，保证 root.iconbitmap() 始终有可用源。异常记 WARNING 返回 None。
+    """
+    try:
+        for path in (ICON_ICO, BUNDLED_ICON_ICO):
+            if path and os.path.isfile(path):
+                return path
+        img = _load_icon_image()
+        tmp_path = os.path.join(tempfile.gettempdir(), "phone-typer-taskbar.ico")
+        img.save(tmp_path, format="ICO")
+        log.warning("任务栏 ico 资源缺失，已生成临时占位图标: %s", tmp_path)
+        return tmp_path
+    except Exception as exc:
+        log.warning("任务栏 ico 路径解析失败: %s", exc)
+        return None
+
+
+def _set_window_taskbar_icon(root) -> None:
+    """设置窗口任务栏图标：调用 CTk 公开重写的 iconbitmap，置位其"用户图标优先"标志，
+    抵抗 Windows 平台约 200ms 后 CTk 默认标题栏图标的覆盖；iconphoto 随后收尾设最终 PNG。
+    异常仅记 WARNING 不抛出，窗口正常显示（spec 5.10.3 场景 2/4）。
+    """
+    try:
+        ico_path = _load_icon_ico_path()
+        if ico_path:
+            root.iconbitmap(ico_path)
+    except Exception as exc:
+        log.warning("窗口任务栏图标设置失败（iconbitmap）: %s", exc)
+
+
+def _install_raise_poller(root, flag, warn_msg: str) -> None:
+    """注册 300ms 周期轮询：flag 置位时前置窗口并清标志，异常记 WARNING 不抛出。"""
+    def _poll() -> None:
+        if flag.is_set():
+            flag.clear()
+            try:
+                root.deiconify()
+                root.lift()
+                root.attributes("-topmost", True)
+                root.focus_force()
+            except Exception as exc:
+                log.warning("%s: %s", warn_msg, exc)
+        root.after(300, _poll)
+    root.after(300, _poll)
+
+
+def _install_window_icon(root, photos: list, logo_size: int,
+                         logo_pady=(22, 6), warn_msg: str = "窗口图标加载失败") -> None:
+    """加载 Logo 与任务栏图标入 photos（防 GC）+ 设任务栏 ico + iconphoto 收尾。"""
+    import tkinter as tk
+    from PIL import ImageTk
+
+    try:
+        icon_photo = ImageTk.PhotoImage(_load_icon_image(logo_size))
+        photos.append(icon_photo)
+        tk.Label(root, image=icon_photo, bg="#050506").pack(pady=logo_pady)
+        taskbar_photo = ImageTk.PhotoImage(_load_icon_image())
+        photos.append(taskbar_photo)
+        _set_window_taskbar_icon(root)
+        root.iconphoto(False, taskbar_photo)
+    except Exception as exc:
+        log.warning("%s: %s", warn_msg, exc)
+
+
 def _access_url() -> str:
     return f"http://{get_lan_ip()}:{CONFIG['http_port']}"
 
@@ -67,40 +135,6 @@ def _pair_uri() -> str:
     """App 配对 URI（手机端 PtQrParser 约定的格式 A）。"""
     return (f"ptyper://connect?ip={get_lan_ip()}"
             f"&http={CONFIG['http_port']}&ws={CONFIG['ws_port']}&pin={CONFIG['pin']}")
-
-
-def _qr_png_path(name: str = "phone-typer-qr.png") -> str:
-    return os.path.join(tempfile.gettempdir(), name)
-
-
-def show_qrcode() -> None:
-    """生成二维码 PNG 并用系统默认看图器打开。"""
-    import qrcode
-
-    url = _access_url()
-    try:
-        img = qrcode.make(url)
-        path = _qr_png_path()
-        img.save(path)
-        os.startfile(path)
-        log.info("二维码已弹出: %s", url)
-    except Exception as exc:
-        log.error("二维码弹窗失败: %s", exc)
-
-
-def show_pair_qrcode() -> None:
-    """生成 App 配对二维码（ptyper:// URI）并用系统看图器打开。"""
-    import qrcode
-
-    uri = _pair_uri()
-    try:
-        img = qrcode.make(uri)
-        path = _qr_png_path("phone-typer-pair-qr.png")
-        img.save(path)
-        os.startfile(path)
-        log.info("App 配对二维码已弹出: %s", uri)
-    except Exception as exc:
-        log.error("配对二维码弹窗失败: %s", exc)
 
 
 def copy_address() -> None:
@@ -137,49 +171,53 @@ def show_status_window() -> None:
 
 def _run_status_window() -> None:
     import tkinter as tk
+    import customtkinter as ctk
 
     import qrcode
     from PIL import Image, ImageTk
 
+    ctk.set_appearance_mode("dark")
     url = _access_url()
-    root = tk.Tk()
+    root = ctk.CTk()
     root.title(f"Phone-Typer v{APP_VERSION}")
-    root.configure(bg="#0a0a0c")
+    root.configure(fg_color="#050506")
     root.resizable(False, False)
     root.attributes("-topmost", True)
 
+    _install_raise_poller(root, _raise_flag, "窗口前置失败")
+
     photos = []
+    _install_window_icon(root, photos, 72)
+
+    ctk.CTkLabel(root, text="Phone-Typer", text_color="#6366f1", fg_color="transparent",
+                 font=("Segoe UI", 20, "bold")).pack()
+    ctk.CTkFrame(root, height=2, width=40, fg_color="#6366f1", corner_radius=0).pack(pady=(4, 8))
+    status_row = ctk.CTkFrame(root, fg_color="transparent")
+    status_row.pack(pady=(0, 14))
+    ctk.CTkLabel(status_row, text="●", text_color="#4ade80", fg_color="transparent",
+                 font=("Segoe UI", 11)).pack(side="left")
+    ctk.CTkLabel(status_row, text=f"  v{APP_VERSION}  ·  服务运行中", text_color="#8a8f98", fg_color="transparent",
+                 font=("Segoe UI", 11)).pack(side="left")
+
+    ctk.CTkLabel(root, text="手机访问地址", text_color="#565b64", fg_color="transparent",
+                 font=("Segoe UI", 12)).pack()
+    url_card = ctk.CTkFrame(root, fg_color="#16161a", corner_radius=10, border_width=2, border_color="#3b3b46")
+    url_card.pack(pady=(4, 10), padx=40, fill="x")
+    ctk.CTkLabel(url_card, text=url, text_color="#ededef", fg_color="transparent",
+                 font=("Consolas", 14, "bold")).pack(padx=12, pady=8)
 
     try:
-        icon_photo = ImageTk.PhotoImage(_load_icon_image(72))
-        photos.append(icon_photo)
-        tk.Label(root, image=icon_photo, bg="#0a0a0c").pack(pady=(22, 6))
-    except Exception as exc:
-        log.warning("窗口图标加载失败: %s", exc)
-
-    tk.Label(root, text="Phone-Typer", fg="#ededef", bg="#0a0a0c",
-             font=("Segoe UI", 17, "bold")).pack()
-    tk.Label(root, text=f"v{APP_VERSION}  ·  服务运行中", fg="#8a8f98", bg="#0a0a0c",
-             font=("Segoe UI", 9)).pack(pady=(0, 14))
-
-    tk.Label(root, text="手机访问地址", fg="#8a8f98", bg="#0a0a0c",
-             font=("Segoe UI", 10)).pack()
-    tk.Label(root, text=url, fg="#ededef", bg="#0a0a0c",
-             font=("Consolas", 14, "bold")).pack(pady=(2, 10))
-
-    try:
-        row = tk.Frame(root, bg="#0a0a0c")
+        row = ctk.CTkFrame(root, fg_color="transparent")
         row.pack(pady=(2, 8))
 
         def qr_cell(parent, content, caption):
             img = qrcode.make(content).convert("RGB").resize((150, 150), Image.NEAREST)
             photo = ImageTk.PhotoImage(img)
             photos.append(photo)
-            cell = tk.Frame(parent, bg="#0a0a0c")
-            tk.Label(cell, image=photo, bg="#0a0a0c",
-                     highlightbackground="#26262c", highlightthickness=1).pack()
-            tk.Label(cell, text=caption, fg="#8a8f98", bg="#0a0a0c",
-                     font=("Segoe UI", 9)).pack(pady=(4, 0))
+            cell = ctk.CTkFrame(parent, fg_color="#16161a", corner_radius=10, border_width=2, border_color="#3b3b46")
+            tk.Label(cell, image=photo, bg="#16161a").pack(padx=10, pady=(10, 4))
+            ctk.CTkLabel(cell, text=caption, text_color="#8a8f98", fg_color="transparent",
+                         font=("Segoe UI", 11)).pack(pady=(0, 10))
             return cell
 
         qr_cell(row, url, "网页版入口（浏览器扫）").pack(side="left", padx=10)
@@ -187,14 +225,33 @@ def _run_status_window() -> None:
     except Exception as exc:
         log.warning("窗口二维码生成失败: %s", exc)
 
-    info = f"HTTP {CONFIG['http_port']}   ·   WS {CONFIG['ws_port']}   ·   PIN {CONFIG['pin']}"
-    tk.Label(root, text=info, fg="#a1a1aa", bg="#0a0a0c",
-             font=("Segoe UI", 10)).pack(pady=(4, 2))
-    tk.Label(root, text="手机 App 扫配对码 / 浏览器扫网页码（同一 WiFi）", fg="#565b64", bg="#0a0a0c",
-             font=("Segoe UI", 9)).pack(pady=(0, 18))
+    ctk.CTkFrame(root, height=1, fg_color="#26262c", corner_radius=0).pack(fill="x", padx=40, pady=(4, 6))
+    info_row = ctk.CTkFrame(root, fg_color="transparent")
+    info_row.pack(pady=(0, 2))
+    ctk.CTkLabel(info_row, text="HTTP ", text_color="#8a8f98", fg_color="transparent",
+                 font=("Segoe UI", 12)).pack(side="left")
+    ctk.CTkLabel(info_row, text=str(CONFIG['http_port']), text_color="#6366f1", fg_color="transparent",
+                 font=("Segoe UI", 13, "bold")).pack(side="left")
+    ctk.CTkLabel(info_row, text="   ·   WS ", text_color="#8a8f98", fg_color="transparent",
+                 font=("Segoe UI", 12)).pack(side="left")
+    ctk.CTkLabel(info_row, text=str(CONFIG['ws_port']), text_color="#6366f1", fg_color="transparent",
+                 font=("Segoe UI", 13, "bold")).pack(side="left")
+    ctk.CTkLabel(info_row, text="   ·   PIN ", text_color="#8a8f98", fg_color="transparent",
+                 font=("Segoe UI", 12)).pack(side="left")
+    ctk.CTkLabel(info_row, text=str(CONFIG['pin']), text_color="#6366f1", fg_color="transparent",
+                 font=("Segoe UI", 13, "bold")).pack(side="left")
+    ctk.CTkLabel(root, text="手机 App 扫配对码 / 浏览器扫网页码（同一 WiFi）", text_color="#565b64", fg_color="transparent",
+                 font=("Segoe UI", 11), wraplength=320).pack(pady=(0, 18))
+
+    ctk.CTkButton(root, text="打开设置",
+                  command=lambda: threading.Thread(target=show_settings_window, daemon=True).start(),
+                  fg_color="transparent", border_color="#6366f1", border_width=1,
+                  text_color="#6366f1", hover_color="#16161a", corner_radius=8,
+                  width=160, font=("Segoe UI", 12)).pack(pady=(6, 18))
 
     root.eval('tk::PlaceWindow . center')
     root.mainloop()
+    log.info("主界面窗口已关闭，程序驻留托盘")
 
 
 _clip_lock = threading.Lock()
@@ -225,11 +282,13 @@ def send_clipboard_to_phone() -> None:
 
 
 _settings_lock = threading.Lock()
+_settings_raise_flag = threading.Event()
 
 
 def show_settings_window() -> None:
     """点托盘'设置'：子线程里跑一个 tkinter 设置小窗。防多开。"""
     if not _settings_lock.acquire(blocking=False):
+        _settings_raise_flag.set()
         return
     try:
         _run_settings_window()
@@ -242,39 +301,61 @@ def show_settings_window() -> None:
 def _run_settings_window() -> None:
     import tkinter as tk
     from tkinter import messagebox
+    import customtkinter as ctk
 
-    from PIL import ImageTk
-
-    root = tk.Tk()
+    ctk.set_appearance_mode("dark")
+    root = ctk.CTk()
     root.title(f"Phone-Typer 设置 · v{APP_VERSION}")
-    root.configure(bg="#0a0a0c")
+    root.configure(fg_color="#050506")
     root.resizable(False, False)
     root.attributes("-topmost", True)
 
+    _install_raise_poller(root, _settings_raise_flag, "设置窗口前置失败")
+
     photos = []
-    try:
-        icon_photo = ImageTk.PhotoImage(_load_icon_image(56))
-        photos.append(icon_photo)
-        tk.Label(root, image=icon_photo, bg="#0a0a0c").pack(pady=(18, 4))
-    except Exception as exc:
-        log.warning("设置窗口图标加载失败: %s", exc)
+    _install_window_icon(root, photos, 56, logo_pady=(18, 4), warn_msg="设置窗口图标加载失败")
 
-    tk.Label(root, text="设置", fg="#ededef", bg="#0a0a0c",
-             font=("Segoe UI", 15, "bold")).pack(pady=(0, 14))
+    ctk.CTkLabel(root, text="设置", text_color="#6366f1", fg_color="transparent",
+                 font=("Segoe UI", 17, "bold")).pack(pady=(0, 14))
 
-    pin_frame = tk.Frame(root, bg="#0a0a0c")
+    pin_frame = ctk.CTkFrame(root, fg_color="transparent")
     pin_frame.pack(padx=30, pady=(0, 6), fill="x")
-    tk.Label(pin_frame, text="PIN 码", fg="#8a8f98", bg="#0a0a0c",
-             font=("Segoe UI", 10)).pack(anchor="w")
+    ctk.CTkLabel(pin_frame, text="PIN 码", text_color="#565b64", fg_color="transparent",
+                 font=("Segoe UI", 11), anchor="w").pack(fill="x")
     pin_var = tk.StringVar(value=str(CONFIG.get("pin", "")))
-    pin_entry = tk.Entry(pin_frame, textvariable=pin_var, fg="#ededef", bg="#16161a",
-                         insertbackground="#ededef", relief="flat",
-                         font=("Consolas", 13), width=22)
-    pin_entry.pack(fill="x", pady=(4, 0), ipady=6)
+    pin_entry = ctk.CTkEntry(pin_frame, textvariable=pin_var, fg_color="#16161a",
+                             border_color="#3b3b46", border_width=2, corner_radius=8,
+                             text_color="#ededef", font=("Consolas", 13), width=220)
+    pin_entry.pack(fill="x", pady=(4, 0))
     pin_entry.focus_set()
+    pin_entry.bind("<FocusIn>", lambda e: pin_entry.configure(border_color="#6366f1"))
+    pin_entry.bind("<FocusOut>", lambda e: pin_entry.configure(border_color="#3b3b46"))
 
-    tk.Label(root, text="手机端需输入相同 PIN 才能键入", fg="#565b64", bg="#0a0a0c",
-             font=("Segoe UI", 9)).pack(pady=(2, 14))
+    ctk.CTkLabel(root, text="手机端需输入相同 PIN 才能键入", text_color="#565b64", fg_color="transparent",
+                 font=("Segoe UI", 11), wraplength=260).pack(pady=(2, 14))
+
+    try:
+        autostart_initial = is_autostart_enabled()
+    except Exception:
+        autostart_initial = False
+    autostart_var = tk.BooleanVar(value=autostart_initial)
+
+    def on_toggle_autostart():
+        desired = autostart_var.get()
+        try:
+            set_autostart(desired)
+        except Exception as exc:
+            log.error("设置开机自启失败: %s", exc)
+            autostart_var.set(not desired)
+            messagebox.showerror("设置失败", "设置开机自启失败，请检查系统权限", parent=root)
+
+    autostart_frame = ctk.CTkFrame(root, fg_color="transparent")
+    autostart_frame.pack(padx=30, pady=(0, 14), fill="x")
+    ctk.CTkLabel(autostart_frame, text="开机自启", text_color="#565b64", fg_color="transparent",
+                 font=("Segoe UI", 11), anchor="w").pack(fill="x")
+    ctk.CTkCheckBox(autostart_frame, text="开机自动启动", variable=autostart_var,
+                    command=on_toggle_autostart, fg_color="#6366f1", hover_color="#5558e0",
+                    text_color="#ededef", corner_radius=6, font=("Segoe UI", 12)).pack(anchor="w", pady=(4, 0))
 
     def on_save():
         new_pin = pin_var.get().strip()
@@ -292,10 +373,9 @@ def _run_settings_window() -> None:
             log.error("PIN 保存失败: %s", exc)
             messagebox.showerror("保存失败", str(exc), parent=root)
 
-    tk.Button(root, text="保存", command=on_save, fg="#ededef", bg="#3b3b46",
-              activebackground="#4b4b56", activeforeground="#ededef",
-              relief="flat", font=("Segoe UI", 11), width=12,
-              cursor="hand2").pack(pady=(0, 18))
+    ctk.CTkButton(root, text="保存", command=on_save, fg_color="#6366f1",
+                  hover_color="#5558e0", text_color="#ffffff", corner_radius=8,
+                  font=("Segoe UI", 13), width=200).pack(pady=(0, 18))
 
     root.eval('tk::PlaceWindow . center')
     root.mainloop()
@@ -304,7 +384,8 @@ def _run_settings_window() -> None:
 def set_autostart(enabled: bool) -> None:
     """写入/删除 HKCU\\...\\Run 注册表项以控制开机自启。
 
-    预留扩展接口，当前版本不调用。以后加菜单项时直接调用本函数即可。
+    分发态指向 exe、开发态指向 server.py；写入时追加 --autostart 参数，
+    使开机自启启动可被区分（静默驻留托盘，不弹主界面）。
     """
     import winreg
 
@@ -317,7 +398,7 @@ def set_autostart(enabled: bool) -> None:
     try:
         if enabled:
             target = sys.executable if getattr(sys, "frozen", False) else os.path.abspath("server.py")
-            winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{target}"')
+            winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{target}" --autostart')
             log.info("已设置开机自启: %s", target)
         else:
             try:
@@ -325,6 +406,32 @@ def set_autostart(enabled: bool) -> None:
                 log.info("已取消开机自启")
             except FileNotFoundError:
                 pass
+    finally:
+        winreg.CloseKey(key)
+
+
+def is_autostart_enabled() -> bool:
+    """读取 HKCU\\...\\Run 注册表项，判断开机自启是否已开启。
+
+    无该项或读取失败时返回 False（降级为默认关闭）。
+    """
+    import winreg
+
+    key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    app_name = "PhoneTyper"
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ)
+    except OSError as exc:
+        log.warning("读取开机自启状态失败: %s", exc)
+        return False
+    try:
+        winreg.QueryValueEx(key, app_name)
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        log.warning("读取开机自启状态失败: %s", exc)
+        return False
     finally:
         winreg.CloseKey(key)
 
@@ -355,10 +462,125 @@ def _on_exit(icon) -> None:
     os._exit(0)
 
 
+# ---- 单实例运行（命名 Mutex + 命名 Event 唤起） ----------------------
+_single_instance_mutex = None
+_show_main_event = None
+_raise_flag = threading.Event()
+
+_MUTEX_NAME = "Local\\PhoneTyper-SingleInstance-Mutex-v1"
+_EVENT_NAME = "Local\\PhoneTyper-ShowMain-Event-v1"
+_ERROR_ALREADY_EXISTS = 183
+
+
+def _acquire_single_instance() -> bool:
+    """惰性创建命名 Mutex；已存在实例返回 False，否则返回 True。异常降级为 True。"""
+    global _single_instance_mutex
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateMutexW.restype = ctypes.c_void_p
+        kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
+        handle = kernel32.CreateMutexW(None, False, _MUTEX_NAME)
+        if not handle:
+            log.warning("单实例 Mutex 创建失败，降级不拦截")
+            return True
+        _single_instance_mutex = handle
+        if kernel32.GetLastError() == _ERROR_ALREADY_EXISTS:
+            return False
+        return True
+    except Exception as exc:
+        log.warning("单实例检测异常，降级不拦截: %s", exc)
+        return True
+
+
+def _signal_existing_instance() -> bool:
+    """通知已有实例唤起主界面（OpenEvent + SetEvent）。失败返回 False。"""
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenEventW.restype = ctypes.c_void_p
+        kernel32.OpenEventW.argtypes = [ctypes.c_uint, ctypes.c_int, ctypes.c_wchar_p]
+        kernel32.SetEvent.restype = ctypes.c_int
+        kernel32.SetEvent.argtypes = [ctypes.c_void_p]
+        kernel32.CloseHandle.restype = ctypes.c_int
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.OpenEventW(0x0002, False, _EVENT_NAME)
+        if not handle:
+            log.warning("打开唤起事件失败（已有实例可能未建监听）")
+            return False
+        try:
+            kernel32.SetEvent(handle)
+        finally:
+            kernel32.CloseHandle(handle)
+        return True
+    except Exception as exc:
+        log.warning("通知已有实例唤起异常: %s", exc)
+        return False
+
+
+def _start_show_main_listener() -> None:
+    """第一实例创建命名事件 + daemon 监听线程，收到唤起时置 _raise_flag 并弹主界面。"""
+    global _show_main_event
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateEventW.restype = ctypes.c_void_p
+        kernel32.CreateEventW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_wchar_p]
+        kernel32.WaitForSingleObject.restype = ctypes.c_uint
+        kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        handle = kernel32.CreateEventW(None, False, False, _EVENT_NAME)
+        if not handle:
+            log.warning("唤起事件创建失败，单实例唤起能力降级不可用")
+            return
+        _show_main_event = handle
+    except Exception as exc:
+        log.warning("唤起监听初始化异常: %s", exc)
+        return
+
+    def _listen():
+        try:
+            kernel32 = ctypes.windll.kernel32
+            while True:
+                ret = kernel32.WaitForSingleObject(_show_main_event, 0xFFFFFFFF)
+                if ret == 0:
+                    _raise_flag.set()
+                    threading.Thread(target=show_status_window, daemon=True).start()
+                else:
+                    break
+        except Exception as exc:
+            log.warning("唤起监听线程异常: %s", exc)
+
+    threading.Thread(target=_listen, daemon=True).start()
+
+
+def _enable_dpi_awareness() -> None:
+    """声明进程级 DPI awareness，使 Tkinter 在高 DPI 屏清晰渲染。三级降级，零新依赖。"""
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
 def run() -> None:
     """托盘模式入口：起服务 + 跑托盘（阻塞主线程）。"""
+    _enable_dpi_awareness()
     setup_logging(console=False)
     log.info("Phone-Typer v%s 托盘模式启动", APP_VERSION)
+
+    if not _acquire_single_instance():
+        if "--autostart" in sys.argv:
+            log.info("已有实例运行中，自启触发静默退出（不唤起）")
+        else:
+            if _signal_existing_instance():
+                log.info("已通知已有实例唤起主界面，本次启动静默退出")
+            else:
+                log.info("已有实例运行但唤起失败，本次启动静默退出")
+        logging.shutdown()
+        os._exit(0)
+
+    _start_show_main_listener()
 
     service = ServiceRunner()
     service.start()
@@ -372,6 +594,11 @@ def run() -> None:
             f"Phone-Typer v{APP_VERSION}",
             _build_menu(),
         )
+        if "--autostart" in sys.argv:
+            log.info("开机自启模式启动，静默驻留托盘（不弹主界面）")
+        else:
+            log.info("启动时已弹出主界面窗口")
+            threading.Thread(target=show_status_window, daemon=True).start()
         icon.run()
     except Exception as exc:
         log.error("托盘启动失败: %s", exc)

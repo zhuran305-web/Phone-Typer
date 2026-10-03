@@ -1,12 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
 
 a = Analysis(
     ['server.py'],
     pathex=[],
     binaries=[],
-    datas=[('web', 'web')],
-    hiddenimports=['tray', 'pystray._win32'],
+    datas=[('web', 'web')] + collect_data_files('customtkinter'),
+    hiddenimports=['tray', 'pystray._win32'] + collect_submodules('customtkinter'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
