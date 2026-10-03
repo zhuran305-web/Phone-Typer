@@ -30,7 +30,7 @@ import qrcode
 import websockets
 from pynput.keyboard import Controller, Key
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 
 FROZEN = getattr(sys, "frozen", False)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
