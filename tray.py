@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Phone-Typer 系统托盘后台模式（v1.6）。
+Phone-Typer 系统托盘后台模式。
 
 无控制台窗口：托盘图标 + 右键菜单 + 主界面 / 设置小窗。
   - 显示主界面：窗口内直接生成并展示网页入口 / App 配对二维码
@@ -37,6 +37,9 @@ BUNDLED_ICON = os.path.join(getattr(sys, "_MEIPASS", ""), "web", "icons", "icon-
 BUNDLED_ICON_512 = os.path.join(getattr(sys, "_MEIPASS", ""), "web", "icons", "icon-512.png")
 ICON_ICO = os.path.join(APP_DIR, "web", "icons", "icon.ico")
 BUNDLED_ICON_ICO = os.path.join(getattr(sys, "_MEIPASS", ""), "web", "icons", "icon.ico")
+
+_OUTLINE_BTN = dict(fg_color="transparent", border_color="#6366f1", border_width=1,
+                    text_color="#6366f1", hover_color="#16161a", corner_radius=8)
 
 
 def _load_icon_image(size: int | None = None):
@@ -109,22 +112,43 @@ def _install_raise_poller(root, flag, warn_msg: str) -> None:
     root.after(300, _poll)
 
 
-def _install_window_icon(root, photos: list, logo_size: int,
-                         logo_pady=(22, 6), warn_msg: str = "窗口图标加载失败") -> None:
-    """加载 Logo 与任务栏图标入 photos（防 GC）+ 设任务栏 ico + iconphoto 收尾。"""
-    import tkinter as tk
-    from PIL import ImageTk
-
+def _reapply_icon(root, photos) -> None:
+    """CTk 200ms 默认图标回调之后延迟重设窗口图标（路径 c 防护）。"""
     try:
-        icon_photo = ImageTk.PhotoImage(_load_icon_image(logo_size))
-        photos.append(icon_photo)
-        tk.Label(root, image=icon_photo, bg="#050506").pack(pady=logo_pady)
-        taskbar_photo = ImageTk.PhotoImage(_load_icon_image())
+        if not root.winfo_exists():
+            return
+        from PIL import ImageTk
+        taskbar_photo = ImageTk.PhotoImage(_load_icon_image(), master=root)
         photos.append(taskbar_photo)
         _set_window_taskbar_icon(root)
         root.iconphoto(False, taskbar_photo)
     except Exception as exc:
+        log.warning("窗口图标延迟重设失败: %s", exc)
+
+
+def _apply_window_icon(root, photos: list, logo_size: int,
+                       logo_pady=(22, 6), warn_msg: str = "窗口图标加载失败") -> None:
+    """统一窗口图标设置：Logo + 任务栏 ico + 标题栏 PNG + after(250) 延迟重设防 CTk 覆盖。"""
+    import tkinter as tk
+    from PIL import ImageTk
+
+    try:
+        icon_photo = ImageTk.PhotoImage(_load_icon_image(logo_size), master=root)
+        photos.append(icon_photo)
+        tk.Label(root, image=icon_photo, bg="#050506").pack(pady=logo_pady)
+        taskbar_photo = ImageTk.PhotoImage(_load_icon_image(), master=root)
+        photos.append(taskbar_photo)
+        _set_window_taskbar_icon(root)
+        root.iconphoto(False, taskbar_photo)
+        root.after(250, lambda: _reapply_icon(root, photos))
+    except Exception as exc:
         log.warning("%s: %s", warn_msg, exc)
+
+
+def _install_window_icon(root, photos: list, logo_size: int,
+                         logo_pady=(22, 6), warn_msg: str = "窗口图标加载失败") -> None:
+    """加载 Logo 与任务栏图标入 photos（防 GC）+ 设任务栏 ico + iconphoto 收尾（薄封装）。"""
+    _apply_window_icon(root, photos, logo_size, logo_pady, warn_msg)
 
 
 def _access_url() -> str:
@@ -135,6 +159,12 @@ def _pair_uri() -> str:
     """App 配对 URI（手机端 PtQrParser 约定的格式 A）。"""
     return (f"ptyper://connect?ip={get_lan_ip()}"
             f"&http={CONFIG['http_port']}&ws={CONFIG['ws_port']}&pin={CONFIG['pin']}")
+
+
+def _qr_fallback(parent, ctk) -> None:
+    """二维码生成失败时在 parent 内显示占位提示。"""
+    ctk.CTkLabel(parent, text="二维码生成失败", text_color="#8a8f98",
+                 fg_color="transparent", font=("Segoe UI", 11)).pack(padx=10, pady=10)
 
 
 def copy_address() -> None:
@@ -169,6 +199,35 @@ def show_status_window() -> None:
         _window_lock.release()
 
 
+def _configure_tabview_purple_theme(tabview) -> None:
+    """配置 CTkTabview 紫黑圆角配色（indigo 高亮），兼容不同 customtkinter 版本 API 差异。
+
+    以逐参数 try/except 兜底，任一参数配置失败记 WARNING 后继续，不阻断 tabview 创建。
+    最外层 try/except 包裹整个方法体，兼容早期版本参数名差异（如 selected_color 而非
+    segmented_button_selected_color）。全部失败时 CTkTabview 呈 CTk 默认主题，需用户目视确认。
+    """
+    try:
+        params = {
+            "fg_color": "#16161a",
+            "segmented_button_fg_color": "#050506",
+            "segmented_button_selected_color": "#6366f1",
+            "segmented_button_selected_hover_color": "#a855f7",
+            "segmented_button_unselected_color": "#050506",
+            "segmented_button_unselected_hover_color": "#16161a",
+            "text_color": "#ededef",
+            "text_color_disabled": "#565b64",
+            "corner_radius": 10,
+            "segmented_button_corner_radius": 8,
+        }
+        for name, value in params.items():
+            try:
+                tabview.configure(**{name: value})
+            except (TypeError, ValueError) as exc:
+                log.warning("CTkTabview 配色参数 %s 配置失败: %s", name, exc)
+    except Exception as exc:
+        log.warning("CTkTabview 配色配置整体失败: %s", exc)
+
+
 def _run_status_window() -> None:
     import tkinter as tk
     import customtkinter as ctk
@@ -187,7 +246,7 @@ def _run_status_window() -> None:
     _install_raise_poller(root, _raise_flag, "窗口前置失败")
 
     photos = []
-    _install_window_icon(root, photos, 72)
+    _apply_window_icon(root, photos, 72)
 
     ctk.CTkLabel(root, text="Phone-Typer", text_color="#6366f1", fg_color="transparent",
                  font=("Segoe UI", 20, "bold")).pack()
@@ -206,48 +265,84 @@ def _run_status_window() -> None:
     ctk.CTkLabel(url_card, text=url, text_color="#ededef", fg_color="transparent",
                  font=("Consolas", 14, "bold")).pack(padx=12, pady=8)
 
+    def qr_cell(parent, content, caption):
+        img = qrcode.make(content).convert("RGB").resize((150, 150), Image.NEAREST)
+        photo = ImageTk.PhotoImage(img, master=root)
+        photos.append(photo)
+        cell = ctk.CTkFrame(parent, fg_color="#16161a", corner_radius=10, border_width=2, border_color="#3b3b46")
+        tk.Label(cell, image=photo, bg="#16161a").pack(padx=10, pady=(10, 4))
+        ctk.CTkLabel(cell, text=caption, text_color="#8a8f98", fg_color="transparent",
+                     font=("Segoe UI", 11)).pack(pady=(0, 10))
+        return cell
+
     try:
-        row = ctk.CTkFrame(root, fg_color="transparent")
-        row.pack(pady=(2, 8))
+        tabview = ctk.CTkTabview(root, fg_color="#16161a", corner_radius=10)
+        _configure_tabview_purple_theme(tabview)
+        tabview.pack(pady=(2, 8), padx=20, fill="x")
 
-        def qr_cell(parent, content, caption):
-            img = qrcode.make(content).convert("RGB").resize((150, 150), Image.NEAREST)
-            photo = ImageTk.PhotoImage(img)
-            photos.append(photo)
-            cell = ctk.CTkFrame(parent, fg_color="#16161a", corner_radius=10, border_width=2, border_color="#3b3b46")
-            tk.Label(cell, image=photo, bg="#16161a").pack(padx=10, pady=(10, 4))
-            ctk.CTkLabel(cell, text=caption, text_color="#8a8f98", fg_color="transparent",
-                         font=("Segoe UI", 11)).pack(pady=(0, 10))
-            return cell
+        tabview.add("网页版")
+        try:
+            qr_cell(tabview.tab("网页版"), url, "网页版入口（浏览器扫）").pack(padx=10, pady=10)
+        except Exception as exc:
+            log.warning("网页版二维码生成失败: %s", exc)
+            _qr_fallback(tabview.tab("网页版"), ctk)
 
-        qr_cell(row, url, "网页版入口（浏览器扫）").pack(side="left", padx=10)
-        qr_cell(row, _pair_uri(), "App 配对（App 扫）").pack(side="left", padx=10)
+        tabview.add("App 版")
+        try:
+            qr_cell(tabview.tab("App 版"), _pair_uri(), "App 配对（App 扫）").pack(padx=10, pady=10)
+        except Exception as exc:
+            log.warning("App 版二维码生成失败: %s", exc)
+            _qr_fallback(tabview.tab("App 版"), ctk)
+
+        tabview.set("网页版")
+    except (AttributeError, ImportError) as exc:
+        log.warning("CTkTabview 不可用，降级为 ttk.Notebook: %s", exc)
+        try:
+            import tkinter.ttk as ttk
+            style = ttk.Style()
+            style.configure("TNotebook", background="#16161a", borderwidth=0)
+            style.configure("TNotebook.Tab", background="#050506", foreground="#8a8f98",
+                            padding=(12, 6), font=("Segoe UI", 11))
+            style.map("TNotebook.Tab", background=[("selected", "#6366f1")],
+                      foreground=[("selected", "#ededef")])
+            notebook = ttk.Notebook(root)
+            notebook.pack(pady=(2, 8), padx=20, fill="x")
+            tab_web = tk.Frame(notebook, bg="#16161a")
+            tab_app = tk.Frame(notebook, bg="#16161a")
+            notebook.add(tab_web, text="网页版")
+            notebook.add(tab_app, text="App 版")
+            try:
+                qr_cell(tab_web, url, "网页版入口（浏览器扫）").pack(padx=10, pady=10)
+            except Exception as exc2:
+                log.warning("网页版二维码生成失败: %s", exc2)
+            try:
+                qr_cell(tab_app, _pair_uri(), "App 配对（App 扫）").pack(padx=10, pady=10)
+            except Exception as exc2:
+                log.warning("App 版二维码生成失败: %s", exc2)
+            notebook.select(0)
+        except Exception as exc2:
+            log.warning("ttk.Notebook 降级也失败: %s", exc2)
     except Exception as exc:
-        log.warning("窗口二维码生成失败: %s", exc)
+        log.warning("窗口二维码区域构建失败: %s", exc)
 
     ctk.CTkFrame(root, height=1, fg_color="#26262c", corner_radius=0).pack(fill="x", padx=40, pady=(4, 6))
     info_row = ctk.CTkFrame(root, fg_color="transparent")
     info_row.pack(pady=(0, 2))
-    ctk.CTkLabel(info_row, text="HTTP ", text_color="#8a8f98", fg_color="transparent",
-                 font=("Segoe UI", 12)).pack(side="left")
-    ctk.CTkLabel(info_row, text=str(CONFIG['http_port']), text_color="#6366f1", fg_color="transparent",
-                 font=("Segoe UI", 13, "bold")).pack(side="left")
-    ctk.CTkLabel(info_row, text="   ·   WS ", text_color="#8a8f98", fg_color="transparent",
-                 font=("Segoe UI", 12)).pack(side="left")
-    ctk.CTkLabel(info_row, text=str(CONFIG['ws_port']), text_color="#6366f1", fg_color="transparent",
-                 font=("Segoe UI", 13, "bold")).pack(side="left")
-    ctk.CTkLabel(info_row, text="   ·   PIN ", text_color="#8a8f98", fg_color="transparent",
-                 font=("Segoe UI", 12)).pack(side="left")
-    ctk.CTkLabel(info_row, text=str(CONFIG['pin']), text_color="#6366f1", fg_color="transparent",
-                 font=("Segoe UI", 13, "bold")).pack(side="left")
+    _info_label_style = dict(text_color="#8a8f98", fg_color="transparent", font=("Segoe UI", 12))
+    _info_value_style = dict(text_color="#6366f1", fg_color="transparent", font=("Segoe UI", 13, "bold"))
+    for label, value in (("HTTP ", CONFIG['http_port']), ("   ·   WS ", CONFIG['ws_port']), ("   ·   PIN ", CONFIG['pin'])):
+        ctk.CTkLabel(info_row, text=label, **_info_label_style).pack(side="left")
+        ctk.CTkLabel(info_row, text=str(value), **_info_value_style).pack(side="left")
     ctk.CTkLabel(root, text="手机 App 扫配对码 / 浏览器扫网页码（同一 WiFi）", text_color="#565b64", fg_color="transparent",
                  font=("Segoe UI", 11), wraplength=320).pack(pady=(0, 18))
 
+    ctk.CTkButton(root, text="复制剪贴板到手机",
+                  command=lambda: threading.Thread(target=send_clipboard_to_phone, daemon=True).start(),
+                  **_OUTLINE_BTN, width=160, font=("Segoe UI", 12)).pack(pady=(6, 0))
+
     ctk.CTkButton(root, text="打开设置",
-                  command=lambda: threading.Thread(target=show_settings_window, daemon=True).start(),
-                  fg_color="transparent", border_color="#6366f1", border_width=1,
-                  text_color="#6366f1", hover_color="#16161a", corner_radius=8,
-                  width=160, font=("Segoe UI", 12)).pack(pady=(6, 18))
+                  command=lambda: threading.Thread(target=get_or_create_settings_window, daemon=True).start(),
+                  **_OUTLINE_BTN, width=160, font=("Segoe UI", 12)).pack(pady=(6, 18))
 
     root.eval('tk::PlaceWindow . center')
     root.mainloop()
@@ -283,37 +378,104 @@ def send_clipboard_to_phone() -> None:
 
 _settings_lock = threading.Lock()
 _settings_raise_flag = threading.Event()
+_settings_root = None
+_settings_state = "idle"
+_settings_pin_entry = None
 
 
-def show_settings_window() -> None:
-    """点托盘'设置'：子线程里跑一个 tkinter 设置小窗。防多开。"""
+def _do_focus(root, pin_entry) -> None:
+    """设置窗口前置聚焦序列：deiconify → lift → topmost → focus_force → PIN 光标末尾。"""
+    try:
+        root.deiconify()
+        root.lift()
+        root.attributes("-topmost", True)
+        root.focus_force()
+        try:
+            if pin_entry is not None:
+                pin_entry.icursor("end")
+        except Exception:
+            pass
+    except Exception as exc:
+        log.warning("设置窗口前置聚焦失败: %s", exc)
+
+
+def _on_close(root) -> None:
+    """WM_DELETE_WINDOW 回调：销毁设置窗口实例并清空单例引用。"""
+    global _settings_root, _settings_state
+    try:
+        root.destroy()
+    except Exception as exc:
+        log.warning("设置窗口销毁失败: %s", exc)
+    _settings_root = None
+    _settings_state = "idle"
+    log.info("设置窗口已关闭")
+
+
+def get_or_create_settings_window() -> None:
+    """跨入口统一获取设置窗口：已存活则前置聚焦，不存在则新建（单例）。"""
+    global _settings_root, _settings_state
     if not _settings_lock.acquire(blocking=False):
-        _settings_raise_flag.set()
+        root = _settings_root
+        if root is not None:
+            try:
+                if root.winfo_exists():
+                    try:
+                        root.after(0, lambda: _do_focus(root, _settings_pin_entry))
+                    except Exception:
+                        _settings_raise_flag.set()
+                else:
+                    _settings_raise_flag.set()
+            except Exception:
+                _settings_raise_flag.set()
         return
     try:
+        root = _settings_root
+        if root is not None:
+            try:
+                if root.winfo_exists():
+                    _settings_state = "alive"
+                    try:
+                        root.after(0, lambda: _do_focus(root, _settings_pin_entry))
+                    except Exception:
+                        _settings_raise_flag.set()
+                    return
+            except Exception:
+                pass
+        _settings_state = "creating"
         _run_settings_window()
     except Exception as exc:
         log.error("设置窗口异常: %s", exc)
     finally:
+        _settings_root = None
+        _settings_state = "idle"
         _settings_lock.release()
 
 
+def show_settings_window() -> None:
+    """点托盘'设置'：跨入口统一获取设置窗口（薄封装，向后兼容）。"""
+    threading.Thread(target=get_or_create_settings_window, daemon=True).start()
+
+
 def _run_settings_window() -> None:
+    global _settings_root, _settings_state, _settings_pin_entry
     import tkinter as tk
     from tkinter import messagebox
     import customtkinter as ctk
 
     ctk.set_appearance_mode("dark")
     root = ctk.CTk()
+    _settings_root = root
+    _settings_state = "alive"
     root.title(f"Phone-Typer 设置 · v{APP_VERSION}")
     root.configure(fg_color="#050506")
     root.resizable(False, False)
     root.attributes("-topmost", True)
 
     _install_raise_poller(root, _settings_raise_flag, "设置窗口前置失败")
+    root.protocol("WM_DELETE_WINDOW", lambda: _on_close(root))
 
     photos = []
-    _install_window_icon(root, photos, 56, logo_pady=(18, 4), warn_msg="设置窗口图标加载失败")
+    _apply_window_icon(root, photos, 56, logo_pady=(18, 4), warn_msg="设置窗口图标加载失败")
 
     ctk.CTkLabel(root, text="设置", text_color="#6366f1", fg_color="transparent",
                  font=("Segoe UI", 17, "bold")).pack(pady=(0, 14))
@@ -327,6 +489,7 @@ def _run_settings_window() -> None:
                              border_color="#3b3b46", border_width=2, corner_radius=8,
                              text_color="#ededef", font=("Consolas", 13), width=220)
     pin_entry.pack(fill="x", pady=(4, 0))
+    _settings_pin_entry = pin_entry
     pin_entry.focus_set()
     pin_entry.bind("<FocusIn>", lambda e: pin_entry.configure(border_color="#6366f1"))
     pin_entry.bind("<FocusOut>", lambda e: pin_entry.configure(border_color="#3b3b46"))
@@ -447,7 +610,7 @@ def _build_menu():
         MenuItem("发送剪贴板到手机", lambda icon, item: threading.Thread(
             target=send_clipboard_to_phone, daemon=True).start()),
         MenuItem("设置", lambda icon, item: threading.Thread(
-            target=show_settings_window, daemon=True).start()),
+            target=get_or_create_settings_window, daemon=True).start()),
         Menu.SEPARATOR,
         MenuItem("退出", lambda icon, item: _on_exit(icon)),
     )
