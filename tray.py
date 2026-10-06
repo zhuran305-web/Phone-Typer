@@ -527,14 +527,19 @@ def _run_settings_window() -> None:
             return
         try:
             save_config({"pin": new_pin})
+        except Exception as exc:
+            log.error("PIN 保存失败: %s", exc)
+            messagebox.showerror("保存失败", str(exc), parent=root)
+            return
+        try:
             log.info("PIN 已更新为 %s（热生效，无需重启）", new_pin)
             messagebox.showinfo("已保存",
                                 f"PIN 已更新为：{new_pin}\n（立即生效，无需重启）",
                                 parent=root)
-            root.destroy()
         except Exception as exc:
-            log.error("PIN 保存失败: %s", exc)
-            messagebox.showerror("保存失败", str(exc), parent=root)
+            log.warning("PIN 已保存但提示弹窗失败: %s", exc)
+        finally:
+            _on_close(root)
 
     ctk.CTkButton(root, text="保存", command=on_save, fg_color="#6366f1",
                   hover_color="#5558e0", text_color="#ffffff", corner_radius=8,
