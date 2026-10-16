@@ -1,0 +1,24 @@
+{
+  "scene": "attach",
+  "exe": "phone-typer-rust.exe",
+  "env": {
+    "platform": "Windows-11-10.0.26100-SP0",
+    "processor": "AMD64 Family 25 Model 116 Stepping 1, AuthenticAMD",
+    "python": "3.14.8",
+    "cpu_count": 12,
+    "total_memory_gb": 15.19,
+    "sampled_at": "2026-10-16 12:57:53"
+  },
+  "conditions": {
+    "times": 1,
+    "duration_s": 120.0,
+    "round_gap_s": 5.0,
+    "point_interval_s": 1.0,
+    "injection": false,
+    "attach": "phone-typer-rust.exe"
+  },
+  "rounds": [],
+  "warnings": [
+    "目标进程未找到：phone-typer-rust.exe，场景中止（不产虚构数据）"
+  ]
+}
